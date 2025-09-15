@@ -1,0 +1,141 @@
+groups:
+- name: iyield-oracle-alerts
+  rules:
+  # Oracle freshness alerts
+  - alert: OracleDataStale
+    expr: (time() - iyield_oracle_last_update_timestamp) > 3600
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "iYield Oracle data is stale"
+      description: "Oracle has not updated for over 1 hour. Last update: {{ $value }} seconds ago"
+
+  - alert: OracleAttestorThresholdBreach
+    expr: iyield_oracle_active_attestors < 2
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Oracle attestor threshold breached"
+      description: "Active attestors ({{ $value }}) below 2-of-N threshold"
+
+  - alert: OracleSignatureFailure
+    expr: rate(iyield_oracle_signature_failures_total[5m]) > 0.1
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High oracle signature failure rate"
+      description: "Oracle signature failure rate: {{ $value }} failures/second"
+
+- name: iyield-vault-alerts
+  rules:
+  # Vault concentration limits
+  - alert: CarrierConcentrationHigh
+    expr: iyield_vault_carrier_exposure_percent > 80
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High carrier concentration in vault"
+      description: "Carrier {{ $labels.carrier }} exposure at {{ $value }}%"
+
+  - alert: VaultUtilizationHigh
+    expr: iyield_vault_utilization_bps > 9000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High vault utilization"
+      description: "Vault utilization at {{ $value }} basis points ({{ div $value 100 }}%)"
+
+  - alert: VaultLTVBreach
+    expr: iyield_vault_ltv_bps > iyield_vault_ltv_cap_bps
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Vault LTV breached"
+      description: "Current LTV {{ $value }} exceeds cap {{ $labels.ltv_cap }}"
+
+- name: iyield-compliance-alerts
+  rules:
+  # Compliance registry alerts
+  - alert: TransferBlocked
+    expr: increase(iyield_compliance_transfers_blocked_total[1m]) > 0
+    for: 1m
+    labels:
+      severity: info
+    annotations:
+      summary: "Transfers blocked by compliance"
+      description: "{{ $value }} transfers blocked in last minute. Reason: {{ $labels.reason }}"
+
+  - alert: Rule144LockupViolation
+    expr: increase(iyield_compliance_rule144_violations_total[5m]) > 0
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Rule 144 lockup violations detected"
+      description: "{{ $value }} Rule 144 violations in last 5 minutes"
+
+- name: iyield-governance-alerts
+  rules:
+  # Governance and pause alerts
+  - alert: SystemPaused
+    expr: iyield_system_paused == 1
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "iYield system is paused"
+      description: "System has been paused by guardian or governance"
+
+  - alert: GuardianAction
+    expr: increase(iyield_guardian_actions_total[1m]) > 0
+    for: 1m
+    labels:
+      severity: info
+    annotations:
+      summary: "Guardian action executed"
+      description: "Guardian executed action: {{ $labels.action }}"
+
+  - alert: SafeTransactionPending
+    expr: iyield_safe_pending_transactions > 0
+    for: 10m
+    labels:
+      severity: info
+    annotations:
+      summary: "Pending Safe transactions"
+      description: "{{ $value }} transactions pending in Gnosis Safe"
+
+- name: iyield-infrastructure-alerts
+  rules:
+  # Infrastructure health
+  - alert: RPCEndpointDown
+    expr: up{job="ethereum-rpc-metrics"} == 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "RPC endpoint down"
+      description: "Primary RPC endpoint is unreachable"
+
+  - alert: HighRPCLatency
+    expr: iyield_rpc_request_duration_seconds{quantile="0.95"} > 5
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "High RPC latency"
+      description: "95th percentile RPC latency: {{ $value }}s"
+
+  - alert: PodCrashLooping
+    expr: rate(kube_pod_container_status_restarts_total[5m]) > 0
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Pod crash looping"
+      description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is crash looping"

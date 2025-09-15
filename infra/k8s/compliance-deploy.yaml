@@ -1,0 +1,147 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iyield-compliance
+  namespace: iyield
+  labels:
+    app: iyield-compliance
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: iyield-compliance
+  template:
+    metadata:
+      labels:
+        app: iyield-compliance
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: oracle-service-account
+      containers:
+      - name: compliance
+        image: iyield/compliance:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: iyield-secrets
+              key: database-url
+        - name: RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: iyield-secrets
+              key: rpc-url
+        - name: COMPLIANCE_REGISTRY_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: iyield-config
+              key: compliance-registry-address
+        - name: NETWORK
+          valueFrom:
+            configMapKeyRef:
+              name: iyield-config
+              key: ethereum-network
+        - name: LOG_LEVEL
+          value: "info"
+        - name: RULE_144_LOCKUP_DAYS
+          value: "365"
+        - name: REG_S_LOCKUP_DAYS
+          value: "90"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: compliance-config
+          mountPath: /app/config
+          readOnly: true
+      volumes:
+      - name: compliance-config
+        configMap:
+          name: compliance-config
+      imagePullSecrets:
+      - name: docker-registry-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iyield-compliance-service
+  namespace: iyield
+  labels:
+    app: iyield-compliance
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: iyield-compliance
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-config
+  namespace: iyield
+data:
+  compliance-rules.json: |
+    {
+      "rules": [
+        {
+          "name": "Rule144",
+          "description": "Rule 144 lockup period for restricted securities",
+          "lockupDays": 365,
+          "exemptions": ["accredited_investor", "qib"]
+        },
+        {
+          "name": "RegS",
+          "description": "Regulation S offshore transaction rules",
+          "lockupDays": 90,
+          "jurisdictions": ["US", "CA", "EU"]
+        },
+        {
+          "name": "RegD",
+          "description": "Regulation D private placement rules",
+          "accreditedOnly": true,
+          "maxInvestors": 99
+        }
+      ],
+      "jurisdictions": {
+        "blocked": ["OFAC", "SDN"],
+        "restricted": ["CN", "KP", "IR"]
+      }
+    }

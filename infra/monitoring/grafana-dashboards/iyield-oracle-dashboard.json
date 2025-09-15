@@ -1,0 +1,157 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "iYield Oracle Dashboard",
+    "tags": ["iyield", "oracle"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Oracle Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "iyield_oracle_active_attestors",
+            "legendFormat": "Active Attestors",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 1},
+                {"color": "green", "value": 2}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Oracle Data Freshness",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "time() - iyield_oracle_last_update_timestamp",
+            "legendFormat": "Seconds Since Last Update",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 1800},
+                {"color": "red", "value": 3600}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Current NAV",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "iyield_oracle_nav_current",
+            "legendFormat": "Current NAV",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 2
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "Top Carriers by Exposure",
+        "type": "bargauge",
+        "targets": [
+          {
+            "expr": "topk(10, iyield_oracle_carrier_exposure_percent)",
+            "legendFormat": "{{ carrier }}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "max": 100,
+            "color": {
+              "mode": "continuous-GrYlRd"
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "Oracle Update Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(iyield_oracle_updates_total[5m])",
+            "legendFormat": "Updates/sec",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Signature Success Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(iyield_oracle_signatures_total[5m]) - rate(iyield_oracle_signature_failures_total[5m])",
+            "legendFormat": "Successful Signatures/sec",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(iyield_oracle_signature_failures_total[5m])",
+            "legendFormat": "Failed Signatures/sec",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 7,
+        "title": "Oracle Data History",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "iyield_oracle_data_cid",
+            "legendFormat": "{{ cid }}",
+            "refId": "A",
+            "format": "table"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s"
+  }
+}

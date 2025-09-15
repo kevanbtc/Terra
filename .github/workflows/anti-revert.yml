@@ -1,0 +1,231 @@
+name: Anti-Revert Protection
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  check-critical-files:
+    name: Protect Critical Files
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history to compare
+          
+      - name: Check for critical file deletions
+        run: |
+          # Define critical paths that should never be deleted
+          CRITICAL_PATHS=(
+            "contracts/core/"
+            "contracts/interfaces/"
+            "docs/specs/"
+            "infra/terraform/main.tf"
+            "infra/k8s/"
+            ".github/workflows/"
+            "hardhat.config.ts"
+            "package.json"
+          )
+          
+          # Get the list of deleted files in this PR/push
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            HEAD_REF="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_REF="${{ github.event.before }}"
+            HEAD_REF="${{ github.event.after }}"
+          fi
+          
+          # Handle case where this is the first commit
+          if [[ "$BASE_REF" == "0000000000000000000000000000000000000000" ]]; then
+            echo "First commit detected, skipping critical file check"
+            exit 0
+          fi
+          
+          DELETED_FILES=$(git diff --name-only --diff-filter=D $BASE_REF..$HEAD_REF)
+          
+          echo "Deleted files:"
+          echo "$DELETED_FILES"
+          
+          VIOLATIONS=""
+          
+          # Check each deleted file against critical paths
+          for file in $DELETED_FILES; do
+            for critical_path in "${CRITICAL_PATHS[@]}"; do
+              if [[ "$file" == $critical_path* ]]; then
+                VIOLATIONS="$VIOLATIONS\n- $file (matches critical path: $critical_path)"
+              fi
+            done
+          done
+          
+          if [[ -n "$VIOLATIONS" ]]; then
+            echo "❌ CRITICAL FILE DELETION DETECTED!"
+            echo -e "The following critical files were deleted:$VIOLATIONS"
+            echo ""
+            echo "Critical files are protected and cannot be deleted without special approval."
+            echo "If this deletion is intentional, please:"
+            echo "1. Add 'ALLOW_CRITICAL_DELETION' label to this PR"
+            echo "2. Get approval from 2+ maintainers"
+            echo "3. Document the reason in the PR description"
+            exit 1
+          fi
+          
+          echo "✅ No critical files were deleted"
+
+  check-contract-modifications:
+    name: Validate Contract Changes
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Check contract interface compatibility
+        run: |
+          # Get the list of modified Solidity files
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            HEAD_REF="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_REF="${{ github.event.before }}"
+            HEAD_REF="${{ github.event.after }}"
+          fi
+          
+          # Handle case where this is the first commit
+          if [[ "$BASE_REF" == "0000000000000000000000000000000000000000" ]]; then
+            echo "First commit detected, skipping contract validation"
+            exit 0
+          fi
+          
+          MODIFIED_CONTRACTS=$(git diff --name-only $BASE_REF..$HEAD_REF | grep -E '\.sol$' | grep -E '^contracts/(core|interfaces)/' || true)
+          
+          if [[ -z "$MODIFIED_CONTRACTS" ]]; then
+            echo "✅ No core contracts modified"
+            exit 0
+          fi
+          
+          echo "Modified core contracts:"
+          echo "$MODIFIED_CONTRACTS"
+          
+          # Check for breaking changes in interfaces
+          INTERFACE_CHANGES=""
+          for contract in $MODIFIED_CONTRACTS; do
+            if [[ "$contract" == *"/interfaces/"* ]]; then
+              # Check if this is adding new functions (OK) vs modifying existing (not OK)
+              ADDED_FUNCTIONS=$(git diff $BASE_REF..$HEAD_REF "$contract" | grep "^+.*function " | wc -l)
+              REMOVED_FUNCTIONS=$(git diff $BASE_REF..$HEAD_REF "$contract" | grep "^-.*function " | wc -l)
+              MODIFIED_FUNCTIONS=$(git diff $BASE_REF..$HEAD_REF "$contract" | grep -E "^[-+].*function " | sort | uniq -d | wc -l)
+              
+              if [[ $REMOVED_FUNCTIONS -gt 0 || $MODIFIED_FUNCTIONS -gt 0 ]]; then
+                INTERFACE_CHANGES="$INTERFACE_CHANGES\n- $contract: Removed/modified functions detected"
+              fi
+            fi
+          done
+          
+          if [[ -n "$INTERFACE_CHANGES" ]]; then
+            echo "⚠️ BREAKING INTERFACE CHANGES DETECTED!"
+            echo -e "The following interfaces have breaking changes:$INTERFACE_CHANGES"
+            echo ""
+            echo "Interface changes require:"
+            echo "1. Version bump in package.json"
+            echo "2. Migration documentation"
+            echo "3. Backward compatibility plan"
+            # Don't fail the build, but flag for review
+            echo "::warning::Breaking interface changes detected - requires special review"
+          fi
+          
+          echo "✅ Contract validation complete"
+
+  check-deployment-configs:
+    name: Validate Deployment Configs
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Validate Terraform changes
+        run: |
+          # Check if Terraform files are modified
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_REF="${{ github.event.pull_request.base.sha }}"
+            HEAD_REF="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_REF="${{ github.event.before }}"
+            HEAD_REF="${{ github.event.after }}"
+          fi
+          
+          # Handle case where this is the first commit
+          if [[ "$BASE_REF" == "0000000000000000000000000000000000000000" ]]; then
+            echo "First commit detected, skipping Terraform validation"
+            exit 0
+          fi
+          
+          TERRAFORM_FILES=$(git diff --name-only $BASE_REF..$HEAD_REF | grep -E '\.tf$' || true)
+          
+          if [[ -z "$TERRAFORM_FILES" ]]; then
+            echo "✅ No Terraform files modified"
+            exit 0
+          fi
+          
+          echo "Modified Terraform files:"
+          echo "$TERRAFORM_FILES"
+          
+          # Check for destructive operations
+          DESTRUCTIVE_CHANGES=""
+          for file in $TERRAFORM_FILES; do
+            # Look for resource deletions or force replacements
+            RESOURCE_DELETIONS=$(git diff $BASE_REF..$HEAD_REF "$file" | grep -E "^-resource " | wc -l)
+            if [[ $RESOURCE_DELETIONS -gt 0 ]]; then
+              DESTRUCTIVE_CHANGES="$DESTRUCTIVE_CHANGES\n- $file: Resource deletions detected"
+            fi
+          done
+          
+          if [[ -n "$DESTRUCTIVE_CHANGES" ]]; then
+            echo "⚠️ DESTRUCTIVE TERRAFORM CHANGES DETECTED!"
+            echo -e "The following files have potentially destructive changes:$DESTRUCTIVE_CHANGES"
+            echo ""
+            echo "Destructive changes require:"
+            echo "1. 'ALLOW_DESTRUCTIVE_TERRAFORM' label on PR"
+            echo "2. Terraform plan review"
+            echo "3. Backup verification"
+            echo "::warning::Destructive Terraform changes detected - requires special review"
+          fi
+          
+          echo "✅ Terraform validation complete"
+
+  require-labels:
+    name: Check Required Labels
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Check for bypass labels
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            
+            const labels = pr.labels.map(label => label.name);
+            const hasCriticalDeletionLabel = labels.includes('ALLOW_CRITICAL_DELETION');
+            const hasDestructiveTerraformLabel = labels.includes('ALLOW_DESTRUCTIVE_TERRAFORM');
+            
+            // Store labels in environment for other jobs
+            core.exportVariable('HAS_CRITICAL_DELETION_LABEL', hasCriticalDeletionLabel);
+            core.exportVariable('HAS_DESTRUCTIVE_TERRAFORM_LABEL', hasDestructiveTerraformLabel);
+            
+            console.log('PR Labels:', labels);
+            console.log('Allow Critical Deletion:', hasCriticalDeletionLabel);
+            console.log('Allow Destructive Terraform:', hasDestructiveTerraformLabel);

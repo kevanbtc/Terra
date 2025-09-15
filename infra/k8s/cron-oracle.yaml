@@ -1,0 +1,164 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: oracle-attestation-cron
+  namespace: iyield
+  labels:
+    app: oracle-attestation
+    component: cronjob
+spec:
+  # Run every 5 minutes
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid  # Don't overlap jobs
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 300  # Clean up after 5 minutes
+      template:
+        spec:
+          serviceAccountName: oracle-service-account
+          restartPolicy: OnFailure
+          containers:
+          - name: attestation-job
+            image: iyield/oracle:latest
+            command: ["node", "scripts/attest-and-push.js"]
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: iyield-secrets
+                  key: database-url
+            - name: RPC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: iyield-secrets
+                  key: rpc-url
+            - name: RPC_FALLBACK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: iyield-secrets
+                  key: rpc-fallback-url
+            - name: ORACLE_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: iyield-secrets
+                  key: oracle-private-key
+            - name: CSV_ORACLE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: iyield-config
+                  key: csv-oracle-address
+            - name: ATTESTOR_THRESHOLD
+              value: "2"
+            - name: CHAIN_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: iyield-config
+                  key: chain-id
+            - name: JOB_TIMEOUT_SECONDS
+              value: "240"  # 4 minutes max
+            - name: LOG_LEVEL
+              value: "info"
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+            volumeMounts:
+            - name: attestation-data
+              mountPath: /tmp/attestation
+          volumes:
+          - name: attestation-data
+            emptyDir: {}
+---
+# One-time job for oracle data backfill
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: oracle-backfill-job
+  namespace: iyield
+  labels:
+    app: oracle-backfill
+    component: job
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600  # Clean up after 1 hour
+  template:
+    spec:
+      serviceAccountName: oracle-service-account
+      restartPolicy: Never
+      containers:
+      - name: backfill-job
+        image: iyield/oracle:latest
+        command: ["node", "scripts/backfill-oracle-data.js"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: iyield-secrets
+              key: database-url
+        - name: RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: iyield-secrets
+              key: rpc-url
+        - name: BACKFILL_START_BLOCK
+          value: "18000000"  # Ethereum block to start backfill
+        - name: BACKFILL_BATCH_SIZE
+          value: "1000"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+---
+# Cleanup job for old oracle data
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: oracle-cleanup-cron
+  namespace: iyield
+  labels:
+    app: oracle-cleanup
+    component: cronjob
+spec:
+  # Run daily at 2 AM
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Replace
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 1800  # Clean up after 30 minutes
+      template:
+        spec:
+          serviceAccountName: oracle-service-account
+          restartPolicy: OnFailure
+          containers:
+          - name: cleanup-job
+            image: iyield/oracle:latest
+            command: ["node", "scripts/cleanup-old-data.js"]
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: iyield-secrets
+                  key: database-url
+            - name: RETENTION_DAYS
+              value: "90"  # Keep 90 days of data
+            - name: DRY_RUN
+              value: "false"
+            resources:
+              requests:
+                memory: "128Mi"
+                cpu: "50m"
+              limits:
+                memory: "256Mi"
+                cpu: "200m"

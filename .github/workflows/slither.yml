@@ -1,0 +1,183 @@
+name: Slither Security Analysis
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'contracts/**'
+      - 'hardhat.config.ts'
+      - 'package.json'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'contracts/**'
+      - 'hardhat.config.ts'
+      - 'package.json'
+  schedule:
+    # Run daily at 3 AM UTC
+    - cron: '0 3 * * *'
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  slither-analysis:
+    name: Slither Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Compile contracts
+        run: npx hardhat compile
+        
+      - name: Run Slither analysis
+        uses: crytic/slither-action@v0.3.0
+        id: slither
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          sarif: results.sarif
+          fail-on: high
+          slither-args: |
+            --filter-paths "node_modules|test" 
+            --exclude-dependencies
+            --exclude-low
+            --exclude-medium
+            --checklist
+        continue-on-error: true
+        
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: ${{ steps.slither.outputs.sarif }}
+          
+      - name: Archive Slither report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: slither-report
+          path: |
+            results.sarif
+            slither-report.json
+            
+      - name: Comment PR with Slither results
+        if: github.event_name == 'pull_request' && steps.slither.outcome == 'failure'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            let report = '';
+            
+            try {
+              if (fs.existsSync('slither-report.json')) {
+                const slitherData = JSON.parse(fs.readFileSync('slither-report.json', 'utf8'));
+                
+                if (slitherData.results && slitherData.results.detectors) {
+                  const highSeverity = slitherData.results.detectors.filter(d => d.impact === 'High');
+                  const mediumSeverity = slitherData.results.detectors.filter(d => d.impact === 'Medium');
+                  
+                  report += `## 🛡️ Slither Security Analysis\n\n`;
+                  
+                  if (highSeverity.length > 0) {
+                    report += `### 🚨 High Severity Issues (${highSeverity.length})\n`;
+                    highSeverity.forEach(issue => {
+                      report += `- **${issue.check}**: ${issue.description}\n`;
+                      report += `  - File: ${issue.elements[0]?.source_mapping?.filename_relative || 'N/A'}\n`;
+                      report += `  - Line: ${issue.elements[0]?.source_mapping?.lines?.[0] || 'N/A'}\n\n`;
+                    });
+                  }
+                  
+                  if (mediumSeverity.length > 0) {
+                    report += `### ⚠️ Medium Severity Issues (${mediumSeverity.length})\n`;
+                    mediumSeverity.forEach(issue => {
+                      report += `- **${issue.check}**: ${issue.description}\n`;
+                    });
+                  }
+                  
+                  if (highSeverity.length === 0 && mediumSeverity.length === 0) {
+                    report += `✅ No high or medium severity issues found!\n`;
+                  }
+                }
+              }
+            } catch (error) {
+              report = `❌ Failed to parse Slither report: ${error.message}\n`;
+            }
+            
+            if (!report) {
+              report = `🛡️ Slither analysis completed. Check the workflow logs for details.\n`;
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+
+  mythril-analysis:
+    name: MythX Security Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install MythX CLI
+        run: pip install mythx-cli
+        
+      - name: Compile contracts
+        run: npx hardhat compile
+        
+      - name: Run MythX analysis
+        env:
+          MYTHX_API_KEY: ${{ secrets.MYTHX_API_KEY }}
+        run: |
+          mythx analyze --mode quick --format json --output mythx-report.json contracts/
+        continue-on-error: true
+        
+      - name: Upload MythX report
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: mythx-report
+          path: mythx-report.json
+
+  dependency-check:
+    name: OWASP Dependency Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'iyield'
+          path: '.'
+          format: 'SARIF'
+          
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: reports/dependency-check-report.sarif

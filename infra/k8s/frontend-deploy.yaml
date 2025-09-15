@@ -1,0 +1,149 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iyield-frontend
+  namespace: iyield
+  labels:
+    app: iyield-frontend
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: iyield-frontend
+  template:
+    metadata:
+      labels:
+        app: iyield-frontend
+        version: v1
+    spec:
+      containers:
+      - name: frontend
+        image: iyield/frontend:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NEXT_PUBLIC_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: iyield-secrets
+              key: rpc-url
+        - name: NEXT_PUBLIC_SAFE_GOV_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: iyield-config
+              key: safe-gov-address
+        - name: NEXT_PUBLIC_SAFE_GUARDIAN_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: iyield-config
+              key: safe-guardian-address
+        - name: NEXT_PUBLIC_NETWORK
+          valueFrom:
+            configMapKeyRef:
+              name: iyield-config
+              key: ethereum-network
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /api/ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: abis
+          mountPath: /app/abis
+          readOnly: true
+      volumes:
+      - name: abis
+        configMap:
+          name: contract-abis
+      imagePullSecrets:
+      - name: docker-registry-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iyield-frontend-service
+  namespace: iyield
+  labels:
+    app: iyield-frontend
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  selector:
+    app: iyield-frontend
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: iyield-frontend-ingress
+  namespace: iyield
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/certificate-arn: ${CERTIFICATE_ARN}
+spec:
+  rules:
+  - host: app.iyield.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: iyield-frontend-service
+            port:
+              number: 3000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: iyield-config
+  namespace: iyield
+data:
+  ethereum-network: "mainnet"
+  safe-gov-address: "0x0000000000000000000000000000000000000000"
+  safe-guardian-address: "0x0000000000000000000000000000000000000000"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: contract-abis
+  namespace: iyield
+data:
+  ERCRWACSV.json: |
+    {
+      "abi": []
+    }
+  CSVVault.json: |
+    {
+      "abi": []
+    }
+  CSVOracle.json: |
+    {
+      "abi": []
+    }
+  ComplianceRegistry.json: |
+    {
+      "abi": []
+    }

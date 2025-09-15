@@ -1,0 +1,191 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "iYield Vault Dashboard",
+    "tags": ["iyield", "vault"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Vault Utilization",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "iyield_vault_utilization_bps / 100",
+            "legendFormat": "Utilization %",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 90}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Current LTV",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "iyield_vault_ltv_bps / 100",
+            "legendFormat": "LTV %",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "max": 100,
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": 0},
+                {"color": "yellow", "value": 60},
+                {"color": "red", "value": 80}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Total Value Locked",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "iyield_vault_tvl_usd",
+            "legendFormat": "TVL",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "decimals": 0
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "Active Policies",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "iyield_vault_active_policies_total",
+            "legendFormat": "Active Policies",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "Carrier Concentration",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "iyield_vault_carrier_exposure_percent",
+            "legendFormat": "{{ carrier }}",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Policy Vintage Distribution",
+        "type": "histogram",
+        "targets": [
+          {
+            "expr": "iyield_vault_policy_vintage_years",
+            "legendFormat": "Policy Age (Years)",
+            "refId": "A"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 7,
+        "title": "Deposit/Withdraw Activity",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(iyield_vault_deposits_total[5m])",
+            "legendFormat": "Deposits/sec",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(iyield_vault_withdrawals_total[5m])",
+            "legendFormat": "Withdrawals/sec",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 8,
+        "title": "Redemption Queue",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "iyield_vault_redemption_queue_length",
+            "legendFormat": "Queue Length",
+            "refId": "A"
+          },
+          {
+            "expr": "iyield_vault_redemption_queue_value_usd",
+            "legendFormat": "Queue Value ($)",
+            "refId": "B"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 9,
+        "title": "Risk Metrics",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "iyield_vault_risk_metrics",
+            "refId": "A",
+            "format": "table"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true,
+                "__name__": true
+              }
+            }
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s"
+  }
+}

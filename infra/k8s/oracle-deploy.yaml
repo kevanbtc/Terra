@@ -1,0 +1,171 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iyield-oracle
+  namespace: iyield
+  labels:
+    app: iyield-oracle
+    version: v1
+spec:
+  replicas: 3  # 3 attestors for 2-of-N threshold
+  selector:
+    matchLabels:
+      app: iyield-oracle
+  template:
+    metadata:
+      labels:
+        app: iyield-oracle
+        version: v1
+    spec:
+      containers:
+      - name: oracle
+        image: iyield/oracle:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: iyield-secrets
+              key: database-url
+        - name: RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: iyield-secrets
+              key: rpc-url
+        - name: RPC_FALLBACK_URL
+          valueFrom:
+            secretKeyRef:
+              name: iyield-secrets
+              key: rpc-fallback-url
+        - name: ORACLE_PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: iyield-secrets
+              key: oracle-private-key
+        - name: CHAIN_ID
+          valueFrom:
+            configMapKeyRef:
+              name: iyield-config
+              key: chain-id
+        - name: CSV_ORACLE_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: iyield-config
+              key: csv-oracle-address
+        - name: ATTESTOR_THRESHOLD
+          value: "2"
+        - name: FRESHNESS_TIMEOUT
+          value: "3600"  # 1 hour
+        - name: LOG_LEVEL
+          value: "info"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: oracle-data
+          mountPath: /data
+      volumes:
+      - name: oracle-data
+        persistentVolumeClaim:
+          claimName: oracle-data-pvc
+      imagePullSecrets:
+      - name: docker-registry-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iyield-oracle-service
+  namespace: iyield
+  labels:
+    app: iyield-oracle
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 9090
+    targetPort: 9090
+    protocol: TCP
+    name: metrics
+  selector:
+    app: iyield-oracle
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: oracle-data-pvc
+  namespace: iyield
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: gp2
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: oracle-attestation-job
+  namespace: iyield
+spec:
+  schedule: "*/5 * * * *"  # Every 5 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: attestation-job
+            image: iyield/oracle:latest
+            command: ["node", "scripts/attest.js"]
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: iyield-secrets
+                  key: database-url
+            - name: RPC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: iyield-secrets
+                  key: rpc-url
+            - name: ORACLE_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: iyield-secrets
+                  key: oracle-private-key
+            resources:
+              requests:
+                memory: "256Mi"
+                cpu: "100m"
+              limits:
+                memory: "512Mi"
+                cpu: "500m"
+          restartPolicy: OnFailure
+      backoffLimit: 3
